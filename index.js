@@ -1,42 +1,66 @@
-require('dotenv').config();
-const mongoose = require('mongoose');
-const { createConnection, getMongoUri, setMongooseDebug } = require('./lib/mongoose');
+require("dotenv").config();
 
-setMongooseDebug(process.env.MONGOOSE_DEBUG === 'true');
+// Initialize database connections
+const {
+  Cluster_Admin,
+  Cluster_Principal,
+  Cluster_Teacher,
+  Cluster_User,
+  Cluster_School,
+  Cluster_Academics,
+  Cluster_Operations,
+} = require("./config/db");
 
-const mongoUri = getMongoUri('MONGO_URI');
-const adminConn = createConnection(mongoUri, 'school_app_admin');
-const principalConn = createConnection(mongoUri, 'school_app_principal');
-const teacherConn = createConnection(mongoUri, 'school_app_teacher');
-const usersConn = createConnection(mongoUri, 'school_app_users');
+// Register models (ensures schemas are compiled on their respective connections)
+const Admin = require("./models/admin");
+const Principal = require("./models/principal");
+const Teacher = require("./models/teacher");
+const Student = require("./models/student");
 
-require('./models/admin/index.js')(adminConn);
-require('./models/principal/index.js')(principalConn);
-require('./models/teacher/index.js')(teacherConn);
-require('./models/users/index.js')(usersConn);
+const School = require("./models/school");
+const SchoolSetting = require("./models/schoolSetting");
 
-async function start() {
-	try {
-		await Promise.all([
-			adminConn.asPromise(),
-			principalConn.asPromise(),
-			teacherConn.asPromise(),
-			usersConn.asPromise(),
-		]);
-		console.log('[DB] Connected: admin, principal, teacher, users');
+const Section = require("./models/section");
+const Subject = require("./models/subject");
 
-		module.exports = {
-			connections: { adminConn, principalConn, teacherConn, usersConn },
-			mongoose,
-		};
+const Holiday = require("./models/holiday");
+const AdmissionConfig = require("./models/admissionConfig");
 
-		if (require.main === module) {
-			console.log('School App Backend initialized.');
-		}
-	} catch (err) {
-		console.error('Failed to connect to MongoDBs:', err);
-		process.exit(1);
-	}
-}
+const Attendance = require("./models/attendance");
+const Assignment = require("./models/assignment");
+const Mark = require("./models/marks");
 
-start();
+const Leave = require("./models/leave");
+const SubstituteTeacher = require("./models/substituteTeacher");
+
+// Optionally export connections and models for external usage
+module.exports = {
+  connections: {
+    Cluster_Admin,
+    Cluster_Principal,
+    Cluster_Teacher,
+    Cluster_User,
+    Cluster_School,
+    Cluster_Academics,
+    Cluster_Operations,
+  },
+  models: {
+    Admin,
+    Principal,
+    Teacher,
+    Student,
+    School,
+    SchoolSetting,
+    Section,
+    Subject,
+    Holiday,
+    AdmissionConfig,
+    Attendance,
+    Assignment,
+    Mark,
+    Leave,
+    SubstituteTeacher,
+  },
+};
+
+
