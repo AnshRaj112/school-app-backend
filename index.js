@@ -32,6 +32,9 @@ const Mark = require("./models/marks");
 
 const Leave = require("./models/leave");
 const SubstituteTeacher = require("./models/substituteTeacher");
+const FeeRule = require("./models/feeRule");
+const StudentFee = require("./models/studentFee");
+const FeePayment = require("./models/feePayment");
 
 // Optionally export connections and models for external usage
 module.exports = {
@@ -60,6 +63,9 @@ module.exports = {
     Mark,
     Leave,
     SubstituteTeacher,
+    FeeRule,
+    StudentFee,
+    FeePayment,
   },
 };
 
