@@ -17,7 +17,10 @@ const adminSchema = new mongoose.Schema({
     unique: true,
     trim: true,
     lowercase: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email"],
+    match: [
+      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+      "Please enter a valid email",
+    ],
   },
   password: {
     type: String,
@@ -41,7 +44,7 @@ const adminSchema = new mongoose.Schema({
     clearAllLocks: { type: Boolean, default: false },
     viewStats: { type: Boolean, default: true },
     manageUsers: { type: Boolean, default: false },
-    manageVendors: { type: Boolean, default: false },
+    manageSchools: { type: Boolean, default: false },
     systemSettings: { type: Boolean, default: false },
   },
   isActive: {
@@ -74,8 +77,6 @@ const adminSchema = new mongoose.Schema({
   },
 });
 
-adminSchema.index({ email: 1 });
-adminSchema.index({ username: 1 });
 adminSchema.index({ role: 1 });
 adminSchema.index({ isActive: 1 });
 
@@ -141,7 +142,9 @@ adminSchema.statics.findByCredentials = async function (email, password) {
     throw new Error("Invalid login credentials");
   }
   if (admin.isLocked()) {
-    throw new Error("Account is temporarily locked due to too many failed attempts");
+    throw new Error(
+      "Account is temporarily locked due to too many failed attempts"
+    );
   }
   const isMatch = await admin.comparePassword(password);
   if (!isMatch) {
@@ -161,5 +164,3 @@ adminSchema.methods.toPublicJSON = function () {
 };
 
 module.exports = Cluster_Admin.model("Admin", adminSchema);
-
-

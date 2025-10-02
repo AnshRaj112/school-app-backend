@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ debug: false });
 
 // Initialize database connections
 const {
@@ -36,6 +36,31 @@ const FeeRule = require("./models/feeRule");
 const StudentFee = require("./models/studentFee");
 const FeePayment = require("./models/feePayment");
 
+const express = require("express");
+const app = express();
+
+// Port
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+});
+app.use(express.json()); // for parsing JSON
+app.use(express.urlencoded({ extended: true })); // for parsing form data
+
+const adminRoutes = require("./routes/adminRoutes");
+const schoolRoutes = require("./routes/schoolRoutes");
+const principalRoutes = require("./routes/principalRoutes");
+const sectionRoutes = require("./routes/sectionRoutes");
+const subjectRoutes = require("./routes/subjectRoutes");
+const teacherRoutes = require("./routes/teacherRoutes");
+app.use("/teachers", teacherRoutes);
+app.use("/subject", subjectRoutes);
+app.use("/section", sectionRoutes);
+app.use("/principals", principalRoutes);
+app.use("/schools", schoolRoutes);
+app.use("/admin", adminRoutes);
+
 // Optionally export connections and models for external usage
 module.exports = {
   connections: {
@@ -68,5 +93,3 @@ module.exports = {
     FeePayment,
   },
 };
-
-
