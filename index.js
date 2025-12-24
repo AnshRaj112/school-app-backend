@@ -54,6 +54,8 @@ const principalRoutes = require("./routes/principalRoutes");
 const sectionRoutes = require("./routes/sectionRoutes");
 const subjectRoutes = require("./routes/subjectRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
+const teacherAssignmentRoutes = require("./routes/assignmentRoutes");
+app.use("/api/teacher/assignments", teacherAssignmentRoutes);
 app.use("/teachers", teacherRoutes);
 app.use("/subject", subjectRoutes);
 app.use("/section", sectionRoutes);
