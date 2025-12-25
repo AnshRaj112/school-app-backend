@@ -1,247 +1,198 @@
 const Subject = require("../models/subject");
-const Admin = require("../models/admin");
-const Principal = require("../models/principal");
-const Section = require("../models/section");
-const Teacher = require("../models/teacher");
-
-/**
- * Utility: check actor permission
- */
-async function isAllowed(actorId) {
-  const admin = await Admin.findById(actorId);
-  if (admin && admin.role === "super_admin") return true;
-
-  const principal = await Principal.findById(actorId);
-  if (principal && principal.isActive) return true;
-
-  return false;
-}
+const { isPrivileged } = require("../utils/authorization");
+const {
+  validateClass,
+  validateSchool,
+  validateSubject,
+} = require("../utils/validators");
 
 /**
  * Create Subject
+ * POST /subjects
  */
 exports.createSubject = async (req, res) => {
   try {
-    const { actorId, school, name, code } = req.body;
+    const { actorId, schoolId, classId, name, code } = req.body;
 
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
+
+    if (!schoolId || !classId || !name || !code) {
+      return res.status(400).json({
+        message: "schoolId, classId, name and code are required",
+      });
     }
 
-    const subject = new Subject({ school, name, code });
-    await subject.save();
+    const school = await validateSchool(schoolId);
+    if (!school) return res.status(404).json({ message: "School not found" });
+
+    const cls = await validateClass(classId);
+    if (!cls) return res.status(404).json({ message: "Invalid classId" });
+
+    // Ensure class belongs to school
+    if (cls.schoolId.toString() !== schoolId) {
+      return res.status(400).json({
+        message: "Class does not belong to this school",
+      });
+    }
+
+    const subject = await Subject.create({
+      schoolId,
+      classId,
+      name,
+      code,
+    });
 
     return res.status(201).json({
-      message: "Subject created",
-      subject: {
-        _id: subject._id,
-        name: subject.name,
-        code: subject.code,
-        school: subject.school,
-        isActive: subject.isActive,
-      },
+      message: "Subject created successfully",
+      subject,
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    if (err.code === 11000) {
+      return res.status(409).json({
+        message: "Subject with same code already exists for this class",
+      });
+    }
+
+    return res.status(500).json({
+      message: "Failed to create subject",
+      error: err.message,
+    });
   }
 };
 
 /**
- * Update Subject
+ * Get Subjects by Class
+ * GET /subjects?actorId=&classId=&includeInactive=true
+ */
+exports.getSubjectsByClass = async (req, res) => {
+  try {
+    const { actorId, classId, includeInactive } = req.query;
+
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
+
+    if (!classId) {
+      return res.status(400).json({ message: "classId is required" });
+    }
+
+    const query = { classId };
+    if (!includeInactive) query.isActive = true;
+
+    const subjects = await Subject.find(query).sort({ name: 1 });
+
+    return res.status(200).json({
+      count: subjects.length,
+      subjects,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Failed to fetch subjects",
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * Update Subject (name / code only)
+ * PUT /subjects/:id
  */
 exports.updateSubject = async (req, res) => {
   try {
-    const { actorId } = req.body;
+    const { actorId, name, code } = req.body;
     const { id } = req.params;
 
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
 
-    const updates = req.body;
-    const subject = await Subject.findByIdAndUpdate(id, updates, {
-      new: true,
-    });
-
+    const subject = await validateSubject(id);
     if (!subject) return res.status(404).json({ message: "Subject not found" });
 
+    if (name) subject.name = name;
+    if (code) subject.code = code;
+
+    await subject.save();
+
     return res.status(200).json({
-      message: "Subject updated",
-      subject: {
-        _id: subject._id,
-        name: subject.name,
-        code: subject.code,
-        school: subject.school,
-        isActive: subject.isActive,
-      },
+      message: "Subject updated successfully",
+      subject,
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-/**
- * Get All Subjects (by school if given)
- */
-exports.getAllSubjects = async (req, res) => {
-  try {
-    const { actorId, school } = req.body;
-
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
+    if (err.code === 11000) {
+      return res.status(409).json({
+        message: "Duplicate subject code for this class",
+      });
     }
 
-    const query = school ? { school } : {};
-    const subjects = await Subject.find(query).select(
-      "name code school isActive"
-    );
-
-    return res.status(200).json({ subjects });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    return res.status(500).json({
+      message: "Failed to update subject",
+      error: err.message,
+    });
   }
 };
 
 /**
- * Get Subject by ID
+ * Activate / Deactivate Subject
+ * PUT /subjects/:id/status
  */
-exports.getSubjectById = async (req, res) => {
+exports.toggleSubjectStatus = async (req, res) => {
   try {
-    const { actorId } = req.body;
+    const { actorId, isActive } = req.body;
     const { id } = req.params;
 
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
 
-    const subject = await Subject.findById(id)
-      .populate("teachers", "fullName email")
-      .populate("sections", "grade name");
-
+    const subject = await validateSubject(id);
     if (!subject) return res.status(404).json({ message: "Subject not found" });
 
-    return res.status(200).json({
-      subject: {
-        _id: subject._id,
-        name: subject.name,
-        code: subject.code,
-        school: subject.school,
-        teachers: subject.teachers,
-        sections: subject.sections,
-        isActive: subject.isActive,
-      },
-    });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-/**
- * Delete Subject
- */
-exports.deleteSubject = async (req, res) => {
-  try {
-    const { actorId } = req.body;
-    const { id } = req.params;
-
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-
-    const subject = await Subject.findByIdAndDelete(id);
-    if (!subject) return res.status(404).json({ message: "Subject not found" });
-
-    return res.status(200).json({ message: "Subject deleted" });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-/**
- * Assign Subject to Teacher
- */
-exports.assignSubjectToTeacher = async (req, res) => {
-  try {
-    const { actorId, subjectId, teacherId } = req.body;
-
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-
-    const subject = await Subject.findById(subjectId);
-    const teacher = await Teacher.findById(teacherId);
-
-    if (!subject || !teacher) {
-      return res.status(404).json({ message: "Subject or Teacher not found" });
-    }
-
-    if (!subject.teachers.includes(teacherId)) {
-      subject.teachers.push(teacherId);
-      await subject.save();
-    }
-    if (!teacher.subjects.includes(subjectId)) {
-      teacher.subjects.push(subjectId);
-      await teacher.save();
-    }
-
-    return res.status(200).json({ message: "Subject assigned to teacher" });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-/**
- * Assign Subject to Section
- */
-exports.assignSubjectToSection = async (req, res) => {
-  try {
-    const { actorId, subjectId, sectionId } = req.body;
-
-    if (!(await isAllowed(actorId))) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-
-    const subject = await Subject.findById(subjectId);
-    const section = await Section.findById(sectionId);
-
-    if (!subject || !section) {
-      return res.status(404).json({ message: "Subject or Section not found" });
-    }
-
-    // Initialize arrays if undefined
-    subject.sections = subject.sections || [];
-    section.subjects = section.subjects || [];
-
-    if (!subject.sections.includes(sectionId)) {
-      subject.sections.push(sectionId);
-      await subject.save();
-    }
-
-    if (!section.subjects.includes(subjectId)) {
-      section.subjects.push(subjectId);
-      await section.save();
-    }
+    subject.isActive = Boolean(isActive);
+    await subject.save();
 
     return res.status(200).json({
-      message: "Subject assigned to section successfully",
-      subjectId,
-      sectionId,
+      message: `Subject ${isActive ? "activated" : "deactivated"}`,
+      subject,
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    return res.status(500).json({
+      message: "Failed to update subject status",
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * Get Subjects by School (OPTIONAL but useful)
+ * GET /subjects/by-school?actorId=&schoolId=
+ */
+exports.getSubjectsBySchool = async (req, res) => {
+  try {
+    const { actorId, schoolId } = req.query;
+
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
+
+    if (!schoolId)
+      return res.status(400).json({ message: "schoolId is required" });
+
+    const subjects = await Subject.find({ schoolId }).sort({
+      classId: 1,
+      name: 1,
+    });
+
+    return res.status(200).json({
+      count: subjects.length,
+      subjects,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Failed to fetch subjects",
+      error: err.message,
+    });
   }
 };

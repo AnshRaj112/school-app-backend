@@ -1,16 +1,20 @@
 const express = require("express");
 const router = express.Router();
-const subjectController = require("../controllers/subjectController");
+const subjectCtrl = require("../controllers/subjectController");
 
-// CRUD
-router.post("/create", subjectController.createSubject);
-router.put("/update/:id", subjectController.updateSubject);
-router.get("/all", subjectController.getAllSubjects);
-router.get("/:id", subjectController.getSubjectById);
-router.delete("/:id", subjectController.deleteSubject);
+// Create subject
+router.post("/", subjectCtrl.createSubject);
 
-// Assign operations
-router.post("/assign/teacher", subjectController.assignSubjectToTeacher);
-router.post("/assign/section", subjectController.assignSubjectToSection);
+// Get subjects by class
+router.get("/", subjectCtrl.getSubjectsByClass);
+
+// Update subject
+router.put("/:id", subjectCtrl.updateSubject);
+
+// Activate / Deactivate subject
+router.put("/:id/status", subjectCtrl.toggleSubjectStatus);
+
+// Get subjects by school (optional)
+router.get("/by-school", subjectCtrl.getSubjectsBySchool);
 
 module.exports = router;

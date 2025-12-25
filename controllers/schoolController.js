@@ -3,12 +3,11 @@ const Admin = require("../models/admin");
 const Principal = require("../models/principal");
 
 /**
- * Create a new school
- * Only Super Admin allowed
+ * CREATE SCHOOL (POST)
  */
 exports.createSchool = async (req, res) => {
   try {
-    const { actorId } = req.body; // ID of the admin/principal performing action
+    const { actorId } = req.body;
     const actor = await Admin.findById(actorId);
 
     if (!actor || actor.role !== "super_admin") {
@@ -17,32 +16,8 @@ exports.createSchool = async (req, res) => {
         .json({ message: "Only Super Admin can create schools" });
     }
 
-    const { name, code, address, city, state, country, pincode, phone, email } =
-      req.body;
-
-    const existing = await School.findOne({ $or: [{ name }, { code }] });
-    if (existing) {
-      return res
-        .status(400)
-        .json({ message: "School with same name or code already exists" });
-    }
-
-    const school = new School({
-      name,
-      code,
-      address,
-      city,
-      state,
-      country,
-      pincode,
-      phone,
-      email,
-    });
-
-    await school.save();
-    return res
-      .status(201)
-      .json({ message: "School created successfully", school });
+    const school = await School.create(req.body);
+    return res.status(201).json({ message: "School created", school });
   } catch (error) {
     return res
       .status(500)
@@ -51,22 +26,21 @@ exports.createSchool = async (req, res) => {
 };
 
 /**
- * Retrieve all schools
- * Super Admin only
+ * GET ALL SCHOOLS (GET)
  */
 exports.getAllSchools = async (req, res) => {
   try {
-    const { actorId } = req.body;
-    const actor = await Admin.findById(actorId);
+    const { actorId } = req.query;
 
+    const actor = await Admin.findById(actorId);
     if (!actor || actor.role !== "super_admin") {
       return res
         .status(403)
-        .json({ message: "Only Super Admin can view all schools" });
+        .json({ message: "Only Super Admin can view schools" });
     }
 
     const schools = await School.find();
-    return res.status(200).json({ schools });
+    return res.json({ schools });
   } catch (error) {
     return res
       .status(500)
@@ -75,46 +49,26 @@ exports.getAllSchools = async (req, res) => {
 };
 
 /**
- * Retrieve school details
- * Admin => only their school
- * Principal => only their school
- * Super Admin => any school
+ * GET SCHOOL BY ID (GET)
  */
 exports.getSchoolById = async (req, res) => {
   try {
-    const { actorId } = req.body;
+    const { actorId } = req.query;
     const { id } = req.params;
 
-    let actor = await Admin.findById(actorId);
-    let principal = null;
+    const admin = await Admin.findById(actorId);
+    const principal = admin ? null : await Principal.findById(actorId);
 
-    if (!actor) {
-      principal = await Principal.findById(actorId);
+    if (admin && admin.role === "super_admin") {
+      return res.json({ school: await School.findById(id) });
     }
 
-    if (actor && actor.role === "super_admin") {
-      const school = await School.findById(id);
-      return res.status(200).json({ school });
+    if (admin && admin.school?.toString() === id) {
+      return res.json({ school: await School.findById(id) });
     }
 
-    if (actor && actor.role === "admin") {
-      if (actor.school?.toString() !== id) {
-        return res
-          .status(403)
-          .json({ message: "Admins can only access their own school" });
-      }
-      const school = await School.findById(id);
-      return res.status(200).json({ school });
-    }
-
-    if (principal) {
-      if (principal.school?.toString() !== id) {
-        return res
-          .status(403)
-          .json({ message: "Principals can only access their own school" });
-      }
-      const school = await School.findById(id);
-      return res.status(200).json({ school });
+    if (principal && principal.school?.toString() === id) {
+      return res.json({ school: await School.findById(id) });
     }
 
     return res.status(403).json({ message: "Unauthorized" });
@@ -126,47 +80,35 @@ exports.getSchoolById = async (req, res) => {
 };
 
 /**
- * Update school details
- * Admin => only their school
- * Principal => only their school
- * Super Admin => any school
+ * UPDATE SCHOOL (PUT)
  */
 exports.updateSchool = async (req, res) => {
   try {
     const { actorId } = req.body;
     const { id } = req.params;
-    const updates = req.body;
 
-    let actor = await Admin.findById(actorId);
-    let principal = null;
+    const admin = await Admin.findById(actorId);
+    const principal = admin ? null : await Principal.findById(actorId);
 
-    if (!actor) {
-      principal = await Principal.findById(actorId);
+    if (admin && admin.role === "super_admin") {
+      return res.json({
+        message: "School updated",
+        school: await School.findByIdAndUpdate(id, req.body, { new: true }),
+      });
     }
 
-    if (actor && actor.role === "super_admin") {
-      const school = await School.findByIdAndUpdate(id, updates, { new: true });
-      return res.status(200).json({ message: "School updated", school });
+    if (admin && admin.school?.toString() === id) {
+      return res.json({
+        message: "School updated",
+        school: await School.findByIdAndUpdate(id, req.body, { new: true }),
+      });
     }
 
-    if (actor && actor.role === "admin") {
-      if (actor.school?.toString() !== id) {
-        return res
-          .status(403)
-          .json({ message: "Admins can only update their own school" });
-      }
-      const school = await School.findByIdAndUpdate(id, updates, { new: true });
-      return res.status(200).json({ message: "School updated", school });
-    }
-
-    if (principal) {
-      if (principal.school?.toString() !== id) {
-        return res
-          .status(403)
-          .json({ message: "Principals can only update their own school" });
-      }
-      const school = await School.findByIdAndUpdate(id, updates, { new: true });
-      return res.status(200).json({ message: "School updated", school });
+    if (principal && principal.school?.toString() === id) {
+      return res.json({
+        message: "School updated",
+        school: await School.findByIdAndUpdate(id, req.body, { new: true }),
+      });
     }
 
     return res.status(403).json({ message: "Unauthorized" });
@@ -178,15 +120,14 @@ exports.updateSchool = async (req, res) => {
 };
 
 /**
- * Delete a school
- * Only Super Admin
+ * DELETE SCHOOL (DELETE)
  */
 exports.deleteSchool = async (req, res) => {
   try {
     const { actorId } = req.body;
     const { id } = req.params;
-    const actor = await Admin.findById(actorId);
 
+    const actor = await Admin.findById(actorId);
     if (!actor || actor.role !== "super_admin") {
       return res
         .status(403)
@@ -194,7 +135,7 @@ exports.deleteSchool = async (req, res) => {
     }
 
     await School.findByIdAndDelete(id);
-    return res.status(200).json({ message: "School deleted" });
+    return res.json({ message: "School deleted" });
   } catch (error) {
     return res
       .status(500)

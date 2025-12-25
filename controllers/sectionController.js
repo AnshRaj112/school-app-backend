@@ -1,241 +1,267 @@
 const Section = require("../models/section");
-const Admin = require("../models/admin");
-const Principal = require("../models/principal");
 const Teacher = require("../models/teacher");
-const Subject = require("../models/subject");
+const { isPrivileged } = require("../utils/authorization");
+const {
+  validateClass,
+  validateSection,
+  validateTeacher,
+} = require("../utils/validators");
 
-// Utility: check if actor is superadmin or principal
-async function authorize(actorId) {
-  const admin = await Admin.findById(actorId);
-  if (admin && admin.role === "super_admin") return "super_admin";
-
-  const principal = await Principal.findById(actorId);
-  if (principal && principal.isActive) return "principal";
-
-  return null;
-}
-
-// ✅ Create Section
+/**
+ * Create Section (A, B, C)
+ * POST /sections
+ */
 exports.createSection = async (req, res) => {
   try {
-    const { actorId, school, grade, name } = req.body;
+    const { actorId, schoolId, classId, name } = req.body;
 
-    const role = await authorize(actorId);
-    if (!role) {
-      return res.status(403).json({ message: "Unauthorized" });
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
+
+    if (!schoolId || !classId || !name) {
+      return res
+        .status(400)
+        .json({ message: "schoolId, classId and name are required" });
     }
 
-    const section = new Section({ school, grade, name });
-    await section.save();
+    const cls = await validateClass(classId);
+    if (!cls) return res.status(400).json({ message: "Invalid classId" });
+
+    const section = await Section.create({
+      schoolId,
+      classId,
+      name: name.trim(),
+    });
 
     return res.status(201).json({
       message: "Section created successfully",
-      section: { id: section._id, school, grade, name },
+      section,
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    if (err.code === 11000) {
+      return res.status(409).json({
+        message: "Section already exists for this class",
+      });
+    }
+
+    return res.status(500).json({
+      message: "Failed to create section",
+      error: err.message,
+    });
   }
 };
 
-// ✅ Get all sections for a school
-exports.getSections = async (req, res) => {
+/**
+ * Get Sections by Class
+ * GET /sections/by-class?actorId=&classId=
+ */
+exports.getSectionsByClass = async (req, res) => {
   try {
-    const { actorId, schoolId } = req.body;
+    const { actorId, classId } = req.query;
 
-    const role = await authorize(actorId);
-    if (!role) {
-      return res.status(403).json({ message: "Unauthorized" });
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
+
+    if (!classId) {
+      return res.status(400).json({ message: "classId is required" });
     }
 
-    const sections = await Section.find({ school: schoolId }).select(
-      "grade name classTeacher isActive"
-    );
+    // 1️⃣ Fetch sections (Academics cluster)
+    const sections = await Section.find({
+      classId,
+      isActive: true,
+    })
+      .sort({ name: 1 })
+      .lean();
 
-    return res.status(200).json({ sections });
+    if (!sections.length) {
+      return res.json({ sections: [] });
+    }
+
+    // 2️⃣ Collect teacherIds
+    const teacherIds = sections.map((s) => s.classTeacherId).filter(Boolean);
+
+    let teacherMap = {};
+
+    if (teacherIds.length) {
+      // 3️⃣ Fetch teachers (Teacher cluster)
+      const teachers = await Teacher.find(
+        { _id: { $in: teacherIds } },
+        { fullName: 1, email: 1 }
+      ).lean();
+
+      // 4️⃣ Build lookup map
+      teacherMap = teachers.reduce((acc, t) => {
+        acc[t._id.toString()] = t;
+        return acc;
+      }, {});
+    }
+
+    // 5️⃣ Attach teacher info manually
+    const enrichedSections = sections.map((s) => ({
+      ...s,
+      classTeacher: s.classTeacherId
+        ? teacherMap[s.classTeacherId.toString()] || null
+        : null,
+    }));
+
+    return res.status(200).json({ sections: enrichedSections });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    return res.status(500).json({
+      message: "Failed to fetch sections",
+      error: err.message,
+    });
   }
 };
 
-// ✅ Update Section (not teacher)
-exports.updateSection = async (req, res) => {
+/**
+ * Assign Class Teacher
+ * POST /sections/:id/assign-class-teacher
+ */
+exports.assignClassTeacher = async (req, res) => {
   try {
-    const { actorId, sectionId, grade, name, isActive } = req.body;
+    const { actorId, teacherId } = req.body;
+    const { id: sectionId } = req.params;
 
-    const role = await authorize(actorId);
-    if (!role) {
-      return res.status(403).json({ message: "Unauthorized" });
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ message: auth.message });
     }
 
-    const section = await Section.findByIdAndUpdate(
-      sectionId,
-      { grade, name, isActive, updatedAt: Date.now() },
-      { new: true }
-    ).select("grade name isActive");
-
+    const section = await validateSection(sectionId);
     if (!section) {
       return res.status(404).json({ message: "Section not found" });
     }
 
-    return res.status(200).json({ message: "Section updated", section });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-// ✅ Delete Section
-exports.deleteSection = async (req, res) => {
-  try {
-    const { actorId, sectionId } = req.body;
-
-    const role = await authorize(actorId);
-    if (!role) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
-
-    const section = await Section.findByIdAndDelete(sectionId);
-    if (!section) {
-      return res.status(404).json({ message: "Section not found" });
-    }
-
-    return res.status(200).json({ message: "Section deleted" });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-// ✅ Assign Class Teacher
-exports.assignTeacher = async (req, res) => {
-  try {
-    const { actorId, sectionId, teacherId } = req.body;
-
-    const role = await authorize(actorId);
-    if (!role) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
-
-    // 🔹 Update Section with new classTeacher
-    const section = await Section.findByIdAndUpdate(
-      sectionId,
-      { classTeacher: teacherId, updatedAt: Date.now() },
-      { new: true }
-    ).select("grade name classTeacher");
-
-    if (!section) {
-      return res.status(404).json({ message: "Section not found" });
-    }
-
-    // 🔹 Update Teacher: add role + section if missing
-    const teacher = await Teacher.findById(teacherId);
+    const teacher = await validateTeacher(teacherId);
     if (!teacher) {
       return res.status(404).json({ message: "Teacher not found" });
     }
 
-    // Ensure "class_teacher" role exists
-    if (!teacher.roles.includes("class_teacher")) {
-      teacher.roles.push("class_teacher");
+    if (
+      teacher.schoolId &&
+      section.schoolId &&
+      teacher.schoolId.toString() !== section.schoolId.toString()
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Teacher belongs to a different school" });
     }
 
-    // Ensure sectionId exists in teacher.sections
-    if (!teacher.sections.some((id) => id.toString() === sectionId)) {
-      teacher.sections.push(sectionId);
+    const existingClassTeacherSection = await Section.findOne({
+      classTeacherId: teacherId,
+      _id: { $ne: sectionId },
+      isActive: true,
+    });
+
+    if (existingClassTeacherSection) {
+      return res.status(409).json({
+        message:
+          "Teacher is already assigned as class teacher to another section",
+        sectionId: existingClassTeacherSection._id,
+      });
     }
 
-    await teacher.save();
+    if (
+      section.classTeacherId &&
+      section.classTeacherId.toString() === teacherId
+    ) {
+      return res.json({
+        message: "Teacher already assigned as class teacher to this section",
+        section,
+      });
+    }
+
+    const previousTeacherId = section.classTeacherId;
+
+    section.classTeacherId = teacherId;
+    await section.save();
+
+    try {
+      if (!teacher.roles.includes("class_teacher")) {
+        teacher.roles.push("class_teacher");
+      }
+
+      if (Array.isArray(teacher.sections)) {
+        if (!teacher.sections.some((s) => s.toString() === sectionId)) {
+          teacher.sections.push(sectionId);
+        }
+      }
+
+      await teacher.save();
+    } catch (innerErr) {
+      section.classTeacherId = previousTeacherId || null;
+      await section.save();
+
+      return res.status(500).json({
+        message: "Failed to update teacher, changes rolled back",
+        error: innerErr.message,
+      });
+    }
 
     return res.status(200).json({
       message: "Class teacher assigned successfully",
       section,
       teacher: {
-        id: teacher._id,
+        _id: teacher._id,
         fullName: teacher.fullName,
         roles: teacher.roles,
-        sections: teacher.sections,
       },
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    return res.status(500).json({
+      message: "Failed to assign class teacher",
+      error: err.message,
+    });
   }
 };
 
-// ✅ Disassign Class Teacher from Section
-exports.removeClassTeacher = async (req, res) => {
+/**
+ * Unassign Class Teacher
+ * POST /sections/:id/unassign-class-teacher
+ */
+exports.unassignClassTeacher = async (req, res) => {
   try {
-    const { actorId, sectionId } = req.body;
+    const { actorId } = req.body;
+    const { id: sectionId } = req.params;
 
-    const role = await authorize(actorId);
-    if (!role) {
-      return res.status(403).json({ message: "Unauthorized" });
+    const auth = await isPrivileged(actorId);
+    if (!auth.ok)
+      return res.status(auth.status).json({ message: auth.message });
+
+    const section = await validateSection(sectionId);
+    if (!section) return res.status(404).json({ message: "Section not found" });
+
+    if (!section.classTeacherId) {
+      return res.status(400).json({ message: "No class teacher assigned" });
     }
 
-    const section = await Section.findById(sectionId);
-    if (!section) {
-      return res.status(404).json({ message: "Section not found" });
-    }
+    const teacherId = section.classTeacherId;
+    section.classTeacherId = null;
+    await section.save();
 
-    if (!section.classTeacher) {
-      return res
-        .status(400)
-        .json({ message: "No class teacher assigned to this section" });
-    }
-
-    const teacherId = section.classTeacher;
-    const teacher = await Teacher.findById(teacherId);
-
-    if (teacher) {
-      // Remove "class_teacher" role
-      teacher.roles = teacher.roles.filter((r) => r !== "class_teacher");
-
-      // Check if teacher teaches any subject in this section
-      const subjectTaught = await Subject.findOne({
-        teachers: teacher._id,
-        sections: sectionId,
-      });
-
-      if (!subjectTaught) {
-        // If they don't teach any subject here → remove section reference
+    try {
+      const teacher = await Teacher.findById(teacherId);
+      if (teacher && Array.isArray(teacher.sections)) {
         teacher.sections = teacher.sections.filter(
           (s) => s.toString() !== sectionId
         );
+        await teacher.save();
       }
-
-      await teacher.save();
+    } catch (cleanupErr) {
+      console.error("Cleanup failed:", cleanupErr.message);
     }
 
-    // ✅ Remove from section
-    section.classTeacher = null;
-    await section.save();
-
-    return res.status(200).json({
-      message: "Class teacher removed successfully",
-      section: {
-        id: section._id,
-        name: section.name,
-        grade: section.grade,
-        classTeacher: null,
-      },
-      teacher: teacher
-        ? {
-            id: teacher._id,
-            fullName: teacher.fullName,
-            roles: teacher.roles,
-            sections: teacher.sections,
-          }
-        : null,
+    return res.json({
+      message: "Class teacher unassigned",
+      section,
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    return res.status(500).json({
+      message: "Failed to unassign class teacher",
+      error: err.message,
+    });
   }
 };

@@ -1,14 +1,16 @@
 const express = require("express");
 const router = express.Router();
-const sectionController = require("../controllers/sectionController");
+const sectionCtrl = require("../controllers/sectionController");
 
-// CRUD
-router.post("/create", sectionController.createSection);
-router.get("/get", sectionController.getSections);
-router.put("/update", sectionController.updateSection);
-router.delete("/delete", sectionController.deleteSection);
+// Create section
+router.post("/", sectionCtrl.createSection);
 
-// Assign Teacher
-router.put("/assign-teacher", sectionController.assignTeacher);
-router.put("/remove-teacher", sectionController.removeClassTeacher);
+// Get sections by class
+//router.get("/", sectionCtrl.getSectionsByClass);
+router.get("/by-class", sectionCtrl.getSectionsByClass);
+
+// Assign / Unassign class teacher
+router.post("/:id/assign-class-teacher", sectionCtrl.assignClassTeacher);
+router.post("/:id/unassign-class-teacher", sectionCtrl.unassignClassTeacher);
+
 module.exports = router;
