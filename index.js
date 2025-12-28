@@ -31,6 +31,7 @@ const Assignment = require("./models/assignment");
 const Mark = require("./models/marks");
 
 const Leave = require("./models/leave");
+
 //const SubstituteTeacher = require("./models/substituteTeacher");
 const FeeRule = require("./models/feeRule");
 const StudentFee = require("./models/studentFee");
@@ -43,6 +44,15 @@ const app = express();
 
 // Port
 const PORT = process.env.PORT || 3000;
+const cors = require("cors");
+
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
@@ -53,6 +63,9 @@ app.use(express.urlencoded({ extended: true })); // for parsing form data
 const adminRoutes = require("./routes/adminRoutes");
 const schoolRoutes = require("./routes/schoolRoutes");
 const principalRoutes = require("./routes/principalRoutes");
+
+// Academic domain (new DB-aligned controllers)
+const classRoutes = require("./routes/classRoutes");
 const sectionRoutes = require("./routes/sectionRoutes");
 const subjectRoutes = require("./routes/subjectRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
@@ -68,6 +81,16 @@ app.use("/section", sectionRoutes);
 app.use("/principals", principalRoutes);
 app.use("/schools", schoolRoutes);
 app.use("/admin", adminRoutes);
+app.use("/schools", schoolRoutes);
+app.use("/principals", principalRoutes);
+
+// Academic routes (flat & readable)
+app.use("/classes", classRoutes);
+app.use("/sections", sectionRoutes);
+app.use("/subjects", subjectRoutes);
+app.use("/teachers", teacherRoutes);
+app.use("/assignments", teachingAssignmentRoutes);
+app.use("/substitutions", substitutionRoutes);
 
 // Optionally export connections and models for external usage
 module.exports = {

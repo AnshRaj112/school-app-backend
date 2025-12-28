@@ -23,6 +23,7 @@ const sectionSchema = new mongoose.Schema(
 
     classTeacherId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: "Teacher",
       default: null,
     },
 
