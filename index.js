@@ -31,10 +31,12 @@ const Assignment = require("./models/assignment");
 const Mark = require("./models/marks");
 
 const Leave = require("./models/leave");
-const SubstituteTeacher = require("./models/substituteTeacher");
+//const SubstituteTeacher = require("./models/substituteTeacher");
 const FeeRule = require("./models/feeRule");
 const StudentFee = require("./models/studentFee");
 const FeePayment = require("./models/feePayment");
+
+const Timetable = require("./models/timetable");
 
 const express = require("express");
 const app = express();
@@ -55,6 +57,10 @@ const sectionRoutes = require("./routes/sectionRoutes");
 const subjectRoutes = require("./routes/subjectRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
 const teacherAssignmentRoutes = require("./routes/assignmentRoutes");
+const timetableRoutes = require("./routes/timetableRoutes");
+
+// Use routes
+app.use("/schools", timetableRoutes);
 app.use("/api/teacher/assignments", teacherAssignmentRoutes);
 app.use("/teachers", teacherRoutes);
 app.use("/subject", subjectRoutes);
@@ -73,6 +79,7 @@ module.exports = {
     Cluster_School,
     Cluster_Academics,
     Cluster_Operations,
+    Timetable,
   },
   models: {
     Admin,
@@ -89,7 +96,7 @@ module.exports = {
     Assignment,
     Mark,
     Leave,
-    SubstituteTeacher,
+    //SubstituteTeacher,
     FeeRule,
     StudentFee,
     FeePayment,
