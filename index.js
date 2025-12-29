@@ -72,7 +72,7 @@ const teacherRoutes = require("./routes/teacherRoutes");
 const teacherAssignmentRoutes = require("./routes/teachingAssignmentRoutes");
 const timetableRoutes = require("./routes/timetableRoutes");
 const studentRoutes = require("./routes/studentRoutes");
-const substitutionRoutes = require("./routes/substitutionRoutes")
+const substitutionRoutes = require("./routes/substitutionRoutes");
 // Use routes
 app.use("/schools", timetableRoutes);
 app.use("/api/teacher/assignments", teacherAssignmentRoutes);
