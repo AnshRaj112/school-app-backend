@@ -16,18 +16,21 @@ const teachingAssignmentSchema = new mongoose.Schema(
 
     sectionId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: "Section",
       required: true,
       index: true,
     },
 
     subjectId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: "Subject",
       required: true,
       index: true,
     },
 
     teacherId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: "Teacher",
       required: true,
       index: true,
     },

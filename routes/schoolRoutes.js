@@ -8,4 +8,7 @@ router.get("/fetch/:id", schoolController.getSchoolById);
 router.put("/update/:id", schoolController.updateSchool);
 router.delete("/delete/:id", schoolController.deleteSchool);
 
+// Get school stats
+router.get("/:schoolId/stats", schoolController.getSchoolStats);
+
 module.exports = router;

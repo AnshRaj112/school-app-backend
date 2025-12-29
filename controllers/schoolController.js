@@ -1,6 +1,10 @@
 const School = require("../models/school");
 const Admin = require("../models/admin");
 const Principal = require("../models/principal");
+const Class = require("../models/class");
+const Section = require("../models/section");
+const Teacher = require("../models/teacher");
+const Student = require("../models/student");
 
 /**
  * CREATE SCHOOL (POST)
@@ -136,6 +140,36 @@ exports.deleteSchool = async (req, res) => {
 
     await School.findByIdAndDelete(id);
     return res.json({ message: "School deleted" });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Server error", error: error.message });
+  }
+};
+
+/**
+ * GET SCHOOL STATS (GET)
+ */
+exports.getSchoolStats = async (req, res) => {
+  try {
+    const { schoolId } = req.params;
+
+    const [classes, sections, teachers, students] = await Promise.all([
+      Class.countDocuments({ schoolId }),
+      Section.countDocuments({ schoolId }),
+      Teacher.countDocuments({ schoolId }),
+      Student.countDocuments({ school: schoolId }),
+    ]);
+
+    return res.json({
+      success: true,
+      stats: {
+        classes,
+        sections,
+        teachers,
+        students,
+      },
+    });
   } catch (error) {
     return res
       .status(500)

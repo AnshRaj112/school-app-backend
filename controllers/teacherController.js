@@ -77,7 +77,13 @@ exports.getTeacherById = async (req, res) => {
   const assignments = await TeachingAssignment.find({
     teacherId: teacher._id,
     isActive: true,
-  });
+  })
+    .populate("subjectId", "name code")
+    .populate({
+      path: "sectionId",
+      select: "name classId",
+      populate: { path: "classId", select: "grade" },
+    });
 
   const substitutions = await Substitution.find({
     substituteTeacherId: teacher._id,
