@@ -43,7 +43,7 @@ const express = require("express");
 const app = express();
 
 // Port
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 const cors = require("cors");
 
 app.use(
@@ -69,9 +69,10 @@ const classRoutes = require("./routes/classRoutes");
 const sectionRoutes = require("./routes/sectionRoutes");
 const subjectRoutes = require("./routes/subjectRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
-const teacherAssignmentRoutes = require("./routes/assignmentRoutes");
+const teacherAssignmentRoutes = require("./routes/teachingAssignmentRoutes");
 const timetableRoutes = require("./routes/timetableRoutes");
-
+const studentRoutes = require("./routes/studentRoutes");
+const substitutionRoutes = require("./routes/substitutionRoutes")
 // Use routes
 app.use("/schools", timetableRoutes);
 app.use("/api/teacher/assignments", teacherAssignmentRoutes);
@@ -89,8 +90,9 @@ app.use("/classes", classRoutes);
 app.use("/sections", sectionRoutes);
 app.use("/subjects", subjectRoutes);
 app.use("/teachers", teacherRoutes);
-app.use("/assignments", teachingAssignmentRoutes);
+app.use("/teaching-assignments", teacherAssignmentRoutes);
 app.use("/substitutions", substitutionRoutes);
+app.use("/students", studentRoutes);
 
 // Optionally export connections and models for external usage
 module.exports = {
