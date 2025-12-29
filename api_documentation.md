@@ -1,7 +1,5 @@
 # API Documentation
 
-Base URL: `http://localhost:5000` (Local) or as configured.
-
 > [!NOTE]
 > Most endpoints require an `actorId` in the body or query params for authorization.
 
