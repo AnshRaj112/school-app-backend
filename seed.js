@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 
-// Import Models
+// Import Models (core)
 const School = require("./models/school");
 const Teacher = require("./models/teacher");
 const Class = require("./models/class");
@@ -10,6 +10,21 @@ const Section = require("./models/section");
 const Subject = require("./models/subject");
 const Student = require("./models/student");
 const TeachingAssignment = require("./models/teachingAssignment");
+const Principal = require("./models/principal");
+
+// Academics domain
+const Assignment = require("./models/assignment");
+const AssignmentResource = require("./models/assignmentResources");
+const AssignmentSubmission = require("./models/assignmentSubmission");
+const Attendance = require("./models/attendance");
+const Timetable = require("./models/timetable");
+
+// Operations domain
+const Holiday = require("./models/holiday");
+const FeeRule = require("./models/feeRule");
+const StudentFee = require("./models/studentFee");
+const FeePayment = require("./models/feePayment");
+const SchoolSetting = require("./models/schoolSetting");
 
 const TEACHER_NAMES = [
     "Aarav Patel",
@@ -68,14 +83,49 @@ async function seed() {
         const SCHOOL_ID = school._id;
         console.log(`✅ School: ${school.name}`);
 
-        // !! CLEAR EXISTING DATA !!
-        console.log("🧹 Clearing old data...");
-        await Teacher.deleteMany({ schoolId: SCHOOL_ID });
-        await Class.deleteMany({ schoolId: SCHOOL_ID });
-        await Section.deleteMany({ schoolId: SCHOOL_ID });
-        await Subject.deleteMany({ schoolId: SCHOOL_ID });
-        await Student.deleteMany({ school: SCHOOL_ID });
-        await TeachingAssignment.deleteMany({ schoolId: SCHOOL_ID });
+        // 1.a Ensure a default SchoolSetting
+        await SchoolSetting.deleteMany({ school: SCHOOL_ID });
+        const academicYearStart = new Date(new Date().getFullYear(), 3, 1); // 1 Apr current year
+        const academicYearEnd = new Date(academicYearStart.getFullYear() + 1, 2, 31); // 31 Mar next year
+        await SchoolSetting.create({
+            school: SCHOOL_ID,
+            attendanceCutoffTime: "18:00",
+            timezone: "Asia/Kolkata",
+            academicYearStart,
+            academicYearEnd,
+        });
+
+        // 1.b Ensure a Principal for this school
+        await Principal.deleteMany({ school: SCHOOL_ID });
+        const principal = await Principal.create({
+            username: "principal.sps",
+            email: "principal@springfield.edu",
+            password: "password123",
+            fullName: "Principal Springfield",
+            school: SCHOOL_ID,
+        });
+
+        // !! CLEAR EXISTING DATA (academics + operations) !!
+        console.log("🧹 Clearing old academic/operations data...");
+        await Promise.all([
+            Teacher.deleteMany({ schoolId: SCHOOL_ID }),
+            Class.deleteMany({ schoolId: SCHOOL_ID }),
+            Section.deleteMany({ schoolId: SCHOOL_ID }),
+            Subject.deleteMany({ schoolId: SCHOOL_ID }),
+            Student.deleteMany({ school: SCHOOL_ID }),
+            TeachingAssignment.deleteMany({ schoolId: SCHOOL_ID }),
+
+            Assignment.deleteMany({}),
+            AssignmentResource.deleteMany({}),
+            AssignmentSubmission.deleteMany({}),
+            Attendance.deleteMany({ school: SCHOOL_ID }),
+            Timetable.deleteMany({ schoolId: SCHOOL_ID }),
+
+            Holiday.deleteMany({ school: SCHOOL_ID }),
+            StudentFee.deleteMany({ school: SCHOOL_ID }),
+            FeePayment.deleteMany({ school: SCHOOL_ID }),
+            FeeRule.deleteMany({ school: SCHOOL_ID }),
+        ]);
 
         // 2. Create Teachers
         console.log("Creating Teachers...");
@@ -166,8 +216,248 @@ async function seed() {
         // Use loop to trigger pre-save middleware (hashing)
         // To speed up, we can hash once manually or just accept slower seed
         // Let's use loop.
+        const createdNoths = [];
         for (const s of students) {
-            await Student.create(s);
+            const doc = await Student.create(s);
+            createdStudents.push(doc);
+        }
+
+        // 5. Create Timetable entries (simple 3 periods per section)
+        console.log("Creating Timetable...");
+        const teachingAssignments = await TeachingAssignment.find({ schoolId: SCHOOL_ID });
+
+        let slot = 0;
+        for (const ta of teachingAssignments) {
+            // Only create a few entries per section to avoid explosion
+            for (let day = 1; day <= 5; day++) {
+                const startMinute = 9 * 60 + (slot % 4) * 45; // 9:00, 9:45, 10:30, 11:15
+                const endMinute = startMinute + 40;
+                await Timetable.create({
+                    schoolId: SCHOOL_ID,
+                    sectionId: ta.sectionId,
+                    subjectId: ta.subjectId,
+                    teacherId: ta.teacherId,
+                    dayOfWeek: day,
+                    startMinute,
+                    endMinute,
+                });
+            }
+            slot++;
+        }
+
+        // 6. Create Holidays (next 60 days)
+        console.log("Creating Holidays...");
+        const today = new Date();
+        const holidayTemplates = [
+            { offset: 7, title: "Second Saturday Holiday" },
+            { offset: 15, title: "Festival Break" },
+            { offset: 30, title: "Sports Day" },
+        ];
+        for (const h of holidayTemplates) {
+            const date = new Date(today);
+            date.setDate(date.getDate() + h.offset);
+            await Holiday.create({
+                school: SCHOOL_ID,
+                title: h.title,
+                date,
+                description: `${h.title} (auto-seeded)`,
+                isFullDay: true,
+            });
+        }
+
+        // 7. Create Assignments + Resources + Submissions
+        console.log("Creating Assignments, Resources, Submissions...");
+        const sectionsForAssignments = await Section.find({ schoolId: SCHOOL_ID });
+        const subjects = await Subject.find({ schoolId: SCHOOL_ID });
+
+        const assignments = [];
+        for (const section of sectionsForAssignments) {
+            // Pick subjects for that class
+            const classSubjects = subjects.filter(
+                (s) => String(s.classId) === String(section.classId)
+            );
+
+            for (const subj of classSubjects.slice(0, 3)) {
+                // Find a teaching assignment for this section+subject
+                const ta = teachingAssignments.find(
+                    (t) =>
+                        String(t.sectionId._id) === String(section._id) &&
+                        String(t.subjectId._id) === String(subj._id)
+                );
+                if (!ta) continue;
+
+                const baseDate = new Date();
+                const dueSoon = new Date(baseDate);
+                dueSoon.setDate(dueSoon.getDate() + 3);
+
+                const docs = await Assignment.create([
+                    {
+                        section: section._id,
+                        subject: subj._id,
+                        title: `${subj.name} Classwork - Intro`,
+                        description: "In-class problems to understand basics.",
+                        type: "classwork",
+                        assignedBy: ta.teacherId,
+                        status: "published",
+                        dueDate: null,
+                    },
+                    {
+                        section: section._id,
+                        subject: subj._id,
+                        title: `${subj.name} Homework - Practice Set`,
+                        description: "Solve the attached worksheet.",
+                        type: "homework",
+                        assignedBy: ta.teacherId,
+                        status: "published",
+                        dueDate: dueSoon,
+                    },
+                ]);
+
+                assignments.push(...docs);
+
+                // Resources for each assignment
+                for (const a of docs) {
+                    await AssignmentResource.create({
+                        assignment: a._id,
+                        uploadedBy: ta.teacherId,
+                        title: `${subj.name} Notes`,
+                        url: "https://example.com/sample-notes.pdf",
+                        resourceType: "pdf",
+                        fileSize: 123456,
+                        isPrimary: true,
+                    });
+                }
+            }
+        }
+
+        // 8. Create Attendance for last 10 days for a subset of students
+        console.log("Creating Attendance...");
+        const subsetStudents = createdStudents.slice(0, 50);
+        const teachersForAttendance = teacherDocs.slice(0, 5);
+        for (let i = 0; i < 10; i++) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            for (const st of subsetStudents) {
+                const teacher = teachersForAttendance[i % teachersForAttendance.length];
+                await Attendance.create({
+                    school: SCHOOL_ID,
+                    section: st.section,
+                    student: st._id,
+                    date,
+                    status: Math.random() < 0.9 ? "present" : "absent",
+                    markedBy: teacher._id,
+                    cutoffTime: "18:00",
+                    isLateEntry: false,
+                });
+            }
+        }
+
+        // 9. Fees: FeeRule + StudentFee + FeePayment
+        console.log("Creating Fee Rules & Payments...");
+        const feeRule = await FeeRule.create({
+            school: SCHOOL_ID,
+            academicYearStart,
+            academicYearEnd,
+            version: 1,
+            components: [
+                {
+                    code: "TUITION",
+                    label: "Tuition Fee",
+                    amount: 20000,
+                    frequency: "yearly",
+                    applicableGrades: [],
+                    applicableSections: [],
+                    isOptional: false,
+                },
+                {
+                    code: "LAB",
+                    label: "Lab Fee",
+                    amount: 3000,
+                    frequency: "yearly",
+                    applicableGrades: [],
+                    applicableSections: [],
+                    isOptional: false,
+                },
+            ],
+            meta: {},
+            createdBy: principal._id,
+        });
+
+        const feeStudents = createdStudents.slice(0, 50);
+        for (const st of feeStudents) {
+            const totalAmount = 23000;
+            const netPayable = totalAmount;
+            const paidAmount = 10000;
+            const remainingAmount = netPayable - paidAmount;
+
+            const sf = await StudentFee.create({
+                school: SCHOOL_ID,
+                student: st._id,
+                section: st.section,
+                academicYearStart,
+                academicYearEnd,
+                feeRule: feeRule._id,
+                version: 1,
+                currency: "INR",
+                breakdown: [
+                    {
+                        componentCode: "TUITION",
+                        label: "Tuition Fee",
+                        amount: 20000,
+                        discounts: 0,
+                        netAmount: 20000,
+                    },
+                    {
+                        componentCode: "LAB",
+                        label: "Lab Fee",
+                        amount: 3000,
+                        discounts: 0,
+                        netAmount: 3000,
+                    },
+                ],
+                totalAmount,
+                discountAmount: 0,
+                netPayable,
+                paidAmount,
+                remainingAmount,
+                status: "partial",
+            });
+
+            await FeePayment.create({
+                school: SCHOOL_ID,
+                student: st._id,
+                studentFee: sf._id,
+                amount: paidAmount,
+                method: "upi",
+                reference: "UPI-TXN-123456",
+                notes: "Initial payment (seed data)",
+            });
+        }
+
+        // 10. Create sample submissions for a couple of assignments
+        console.log("Creating Assignment Submissions...");
+        const sampleAssignments = assignments.slice(0, 10);
+        for (const a of sampleAssignments) {
+            const someStudents = createdStudents
+                .filter((st) => String(st.section) === String(a.section))
+                .slice(0, 10);
+            for (const st of someStudents) {
+                await AssignmentSubmission.create({
+                    assignment: a._id,
+                    student: st._id,
+                    submissionText: "My homework submission (auto-generated).",
+                    attachments: [
+                        {
+                            url: "https://example.com/homework-doc",
+                            name: "Homework doc",
+                            fileType: "link",
+                            fileSize: 0,
+                        },
+                    ],
+                    status: "submitted",
+                    submittedAt: new Date(),
+                });
+            }
         }
 
         console.log("🏁 Seeding Complete!");

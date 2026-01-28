@@ -2,6 +2,18 @@ const Student = require("../models/student");
 const Section = require("../models/section");
 const School = require("../models/school");
 const Class = require("../models/class");
+const mongoose = require("mongoose");
+
+const Assignment = require("../models/assignment");
+const AssignmentResource = require("../models/assignmentResources");
+const AssignmentSubmission = require("../models/assignmentSubmission");
+const Attendance = require("../models/attendance");
+const Holiday = require("../models/holiday");
+const Timetable = require("../models/timetable");
+const Subject = require("../models/subject");
+const Teacher = require("../models/teacher");
+const StudentFee = require("../models/studentFee");
+const FeePayment = require("../models/feePayment");
 
 // Helper to filter by School ID (assuming it's passed in query or body for now, or auth middleware)
 // For real auth, req.user.schoolId would be used.
@@ -185,5 +197,381 @@ exports.deleteStudent = async (req, res) => {
       .json({ message: "Student deleted successfully", success: true });
   } catch (error) {
     res.status(500).json({ message: error.message, success: false });
+  }
+};
+
+function isValidObjectId(id) {
+  return mongoose.Types.ObjectId.isValid(id);
+}
+
+async function loadStudentContext(studentId) {
+  const student = await Student.findById(studentId).populate("school").populate({
+    path: "section",
+    populate: { path: "classId", select: "grade" },
+  });
+  if (!student) return { ok: false, status: 404, message: "Student not found" };
+  if (!student.isActive)
+    return { ok: false, status: 403, message: "Student is inactive" };
+  if (!student.school)
+    return { ok: false, status: 400, message: "Student is missing school" };
+  if (!student.section)
+    return { ok: false, status: 400, message: "Student is missing section" };
+  return { ok: true, student };
+}
+
+/**
+ * STUDENT VIEW: Dashboard (assignments, attendance, timetable, holidays, fees)
+ */
+exports.getStudentDashboard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const student = ctx.student;
+    const now = new Date();
+
+    const [assignments, attendanceRecent, holidaysUpcoming, timetable, fees, payments] =
+      await Promise.all([
+        Assignment.find({
+          section: student.section._id,
+          status: "published",
+        })
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .populate("subject", "name code")
+          .populate("assignedBy", "fullName"),
+
+        Attendance.find({
+          student: student._id,
+          section: student.section._id,
+        })
+          .sort({ date: -1 })
+          .limit(60),
+
+        Holiday.find({
+          school: student.school._id,
+          date: { $gte: new Date(now.toDateString()) },
+        })
+          .sort({ date: 1 })
+          .limit(20),
+
+        Timetable.find({
+          schoolId: student.school._id,
+          sectionId: student.section._id,
+        })
+          .sort({ dayOfWeek: 1, startMinute: 1 })
+          .populate("subjectId", "name code")
+          .populate("teacherId", "fullName"),
+
+        StudentFee.find({ student: student._id, school: student.school._id })
+          .sort({ academicYearStart: -1 })
+          .limit(5),
+
+        FeePayment.find({ student: student._id, school: student.school._id })
+          .sort({ receivedAt: -1 })
+          .limit(20),
+      ]);
+
+    // Attach submissions for assignments (quick lookup)
+    const assignmentIds = assignments.map((a) => a._id);
+    const submissions = assignmentIds.length
+      ? await AssignmentSubmission.find({
+          assignment: { $in: assignmentIds },
+          student: student._id,
+        })
+          .select("assignment status submittedAt updatedAt marksObtained feedback attachments")
+          .lean()
+      : [];
+
+    const submissionsByAssignment = new Map(
+      submissions.map((s) => [String(s.assignment), s])
+    );
+
+    const assignmentsWithMySubmission = assignments.map((a) => ({
+      ...a.toObject(),
+      mySubmission: submissionsByAssignment.get(String(a._id)) || null,
+    }));
+
+    // Attendance summary
+    const attendanceSummary = attendanceRecent.reduce(
+      (acc, a) => {
+        acc.total += 1;
+        acc[a.status] = (acc[a.status] || 0) + 1;
+        return acc;
+      },
+      { total: 0, present: 0, absent: 0, late: 0, excused: 0 }
+    );
+
+    res.status(200).json({
+      success: true,
+      student: {
+        _id: student._id,
+        fullName: student.fullName,
+        school: { _id: student.school._id, name: student.school.name },
+        section: student.section,
+      },
+      assignments: assignmentsWithMySubmission,
+      attendance: {
+        recent: attendanceRecent,
+        summary: attendanceSummary,
+      },
+      holidaysUpcoming,
+      timetable,
+      fees,
+      payments,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Assignments (filterable by type)
+ */
+exports.getStudentAssignments = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.query; // classwork/homework/assignment
+
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const q = {
+      section: ctx.student.section._id,
+      status: "published",
+    };
+    if (type) q.type = type;
+
+    const assignments = await Assignment.find(q)
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .populate("subject", "name code")
+      .populate("assignedBy", "fullName");
+
+    res.status(200).json({ success: true, assignments });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Resources shared by teacher (assignment resources) for the student's section
+ */
+exports.getStudentResources = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const assignments = await Assignment.find({
+      section: ctx.student.section._id,
+      status: "published",
+    }).select("_id title subject createdAt");
+
+    const assignmentIds = assignments.map((a) => a._id);
+
+    const resources = assignmentIds.length
+      ? await AssignmentResource.find({ assignment: { $in: assignmentIds } })
+          .sort({ createdAt: -1 })
+          .populate("uploadedBy", "fullName")
+          .populate({
+            path: "assignment",
+            select: "title subject type dueDate",
+            populate: { path: "subject", select: "name code" },
+          })
+      : [];
+
+    res.status(200).json({ success: true, resources });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Get my submission for an assignment
+ */
+exports.getMyAssignmentSubmission = async (req, res) => {
+  try {
+    const { id, assignmentId } = req.params;
+    if (!isValidObjectId(id) || !isValidObjectId(assignmentId))
+      return res.status(400).json({ success: false, message: "Invalid id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const submission = await AssignmentSubmission.findOne({
+      assignment: assignmentId,
+      student: ctx.student._id,
+    });
+
+    res.status(200).json({ success: true, submission: submission || null });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Upload/submit homework (upsert submission)
+ * NOTE: This stores attachment metadata (url/name/type/size). Actual file hosting should be handled separately.
+ */
+exports.upsertAssignmentSubmission = async (req, res) => {
+  try {
+    const { id, assignmentId } = req.params;
+    if (!isValidObjectId(id) || !isValidObjectId(assignmentId))
+      return res.status(400).json({ success: false, message: "Invalid id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const assignment = await Assignment.findById(assignmentId);
+    if (!assignment)
+      return res.status(404).json({ success: false, message: "Assignment not found" });
+
+    // Ensure assignment belongs to student's section
+    if (String(assignment.section) !== String(ctx.student.section._id)) {
+      return res.status(403).json({ success: false, message: "Assignment not for your section" });
+    }
+
+    const { submissionText, attachments } = req.body || {};
+
+    const dueDate = assignment.dueDate ? new Date(assignment.dueDate) : null;
+    const isLate = dueDate ? new Date() > dueDate : false;
+
+    const update = {
+      submissionText: submissionText || "",
+      attachments: Array.isArray(attachments) ? attachments : [],
+      status: isLate ? "late" : "submitted",
+      submittedAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const submission = await AssignmentSubmission.findOneAndUpdate(
+      { assignment: assignment._id, student: ctx.student._id },
+      { $set: update },
+      { new: true, upsert: true, runValidators: true }
+    );
+
+    res.status(200).json({ success: true, message: "Submission saved", submission });
+  } catch (error) {
+    // Duplicate key can happen in race conditions
+    if (error && error.code === 11000) {
+      return res.status(409).json({ success: false, message: "Submission already exists" });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Fees summary
+ */
+exports.getStudentFees = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const fees = await StudentFee.find({
+      student: ctx.student._id,
+      school: ctx.student.school._id,
+    }).sort({ academicYearStart: -1 });
+
+    res.status(200).json({ success: true, fees });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Past payments
+ */
+exports.getStudentFeePayments = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const payments = await FeePayment.find({
+      student: ctx.student._id,
+      school: ctx.student.school._id,
+    })
+      .sort({ receivedAt: -1 })
+      .limit(100);
+
+    res.status(200).json({ success: true, payments });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT VIEW: Pay fees (creates payment record and updates StudentFee aggregates)
+ */
+exports.createStudentFeePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { studentFeeId, amount, method, reference, notes } = req.body || {};
+
+    if (!isValidObjectId(id) || !isValidObjectId(studentFeeId)) {
+      return res.status(400).json({ success: false, message: "Invalid id" });
+    }
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const fee = await StudentFee.findOne({
+      _id: studentFeeId,
+      student: ctx.student._id,
+      school: ctx.student.school._id,
+    });
+
+    if (!fee) return res.status(404).json({ success: false, message: "Fee record not found" });
+
+    const payAmount = Number(amount);
+    if (!payAmount || payAmount <= 0) {
+      return res.status(400).json({ success: false, message: "amount must be > 0" });
+    }
+    if (payAmount > fee.remainingAmount) {
+      return res.status(400).json({ success: false, message: "amount exceeds remaining amount" });
+    }
+    if (!method) {
+      return res.status(400).json({ success: false, message: "method is required" });
+    }
+
+    const payment = await FeePayment.create({
+      school: fee.school,
+      student: fee.student,
+      studentFee: fee._id,
+      amount: payAmount,
+      method,
+      reference,
+      notes,
+      receivedAt: new Date(),
+    });
+
+    fee.paidAmount = (fee.paidAmount || 0) + payAmount;
+    fee.remainingAmount = Math.max(0, (fee.remainingAmount || 0) - payAmount);
+    fee.status = fee.remainingAmount === 0 ? "paid" : fee.paidAmount > 0 ? "partial" : "unpaid";
+    fee.updatedAt = new Date();
+    await fee.save();
+
+    res.status(201).json({ success: true, message: "Payment recorded", payment, fee });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
