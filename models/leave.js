@@ -13,6 +13,11 @@ const leaveSchema = new mongoose.Schema({
   appliedAt: { type: Date, default: Date.now },
   decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Principal" },
   decidedAt: { type: Date },
+  // Half-day support
+  isHalfDay: { type: Boolean, default: false },
+  halfDayType: { type: String, enum: ["morning", "afternoon"], default: null },
+  verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Teacher" },
+  verifiedAt: { type: Date },
 });
 
 leaveSchema.index({ school: 1, applicantType: 1, student: 1, teacher: 1, fromDate: 1, toDate: 1 });

@@ -28,6 +28,10 @@ router.get(
   studentCtrl.getMyAssignmentSubmission
 );
 
+// Half-day requests (student view)
+router.post("/:id/half-day-requests", studentCtrl.requestHalfDay);
+router.get("/:id/half-day-requests", studentCtrl.getMyHalfDayRequests);
+
 // Get single student
 router.get("/:id", studentCtrl.getStudentById);
 

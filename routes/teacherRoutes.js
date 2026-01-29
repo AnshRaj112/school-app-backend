@@ -9,4 +9,8 @@ router.get("/:id", teacherController.getTeacherById);
 router.put("/:id", teacherController.updateTeacher);
 router.put("/:id/status", teacherController.updateTeacherStatus);
 
+// Half-day requests (teacher view)
+router.get("/half-day-requests/pending", teacherController.getPendingHalfDayRequests);
+router.put("/half-day-requests/:requestId/verify", teacherController.verifyHalfDayRequest);
+
 module.exports = router;

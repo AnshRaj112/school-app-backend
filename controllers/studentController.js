@@ -14,6 +14,7 @@ const Subject = require("../models/subject");
 const Teacher = require("../models/teacher");
 const StudentFee = require("../models/studentFee");
 const FeePayment = require("../models/feePayment");
+const Leave = require("../models/leave");
 
 // Helper to filter by School ID (assuming it's passed in query or body for now, or auth middleware)
 // For real auth, req.user.schoolId would be used.
@@ -571,6 +572,88 @@ exports.createStudentFeePayment = async (req, res) => {
     await fee.save();
 
     res.status(201).json({ success: true, message: "Payment recorded", payment, fee });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT: Request half-day leave
+ */
+exports.requestHalfDay = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const ctx = await loadStudentContext(id);
+    if (!ctx.ok) return res.status(ctx.status).json({ success: false, message: ctx.message });
+
+    const { date, halfDayType, reason } = req.body;
+    if (!date || !halfDayType) {
+      return res.status(400).json({ success: false, message: "Date and halfDayType are required" });
+    }
+    if (!["morning", "afternoon"].includes(halfDayType)) {
+      return res.status(400).json({ success: false, message: "halfDayType must be 'morning' or 'afternoon'" });
+    }
+
+    const requestDate = new Date(date);
+    requestDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (requestDate < today) {
+      return res.status(400).json({ success: false, message: "Cannot request half-day for past dates" });
+    }
+
+    // Check if already requested
+    const existing = await Leave.findOne({
+      student: id,
+      fromDate: { $lte: requestDate },
+      toDate: { $gte: requestDate },
+      isHalfDay: true,
+      status: { $in: ["pending", "approved"] },
+    });
+
+    if (existing) {
+      return res.status(409).json({ success: false, message: "Half-day already requested for this date" });
+    }
+
+    const halfDayRequest = await Leave.create({
+      school: ctx.student.school._id,
+      applicantType: "student",
+      student: id,
+      fromDate: requestDate,
+      toDate: requestDate,
+      reason: reason || "",
+      isHalfDay: true,
+      halfDayType,
+      status: "pending",
+    });
+
+    res.status(201).json({ success: true, message: "Half-day request submitted", request: halfDayRequest });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * STUDENT: Get my half-day requests
+ */
+exports.getMyHalfDayRequests = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id))
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const requests = await Leave.find({
+      student: id,
+      isHalfDay: true,
+    })
+      .sort({ fromDate: -1 })
+      .populate("verifiedBy", "fullName");
+
+    res.json({ success: true, requests });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
