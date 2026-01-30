@@ -31,6 +31,7 @@ const Assignment = require("./models/assignment");
 const Mark = require("./models/marks");
 
 const Leave = require("./models/leave");
+const Notice = require("./models/notice");
 
 //const SubstituteTeacher = require("./models/substituteTeacher");
 const FeeRule = require("./models/feeRule");
@@ -73,6 +74,7 @@ const teacherAssignmentRoutes = require("./routes/teachingAssignmentRoutes");
 const timetableRoutes = require("./routes/timetableRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const substitutionRoutes = require("./routes/substitutionRoutes");
+const noticeRoutes = require("./routes/noticeRoutes");
 // Use routes
 app.use("/schools", timetableRoutes);
 app.use("/api/teacher/assignments", teacherAssignmentRoutes);
@@ -93,6 +95,7 @@ app.use("/teachers", teacherRoutes);
 app.use("/teaching-assignments", teacherAssignmentRoutes);
 app.use("/substitutions", substitutionRoutes);
 app.use("/students", studentRoutes);
+app.use("/notices", noticeRoutes);
 
 // Optionally export connections and models for external usage
 module.exports = {
@@ -121,6 +124,7 @@ module.exports = {
     Assignment,
     Mark,
     Leave,
+    Notice,
     //SubstituteTeacher,
     FeeRule,
     StudentFee,

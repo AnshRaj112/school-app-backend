@@ -25,6 +25,7 @@ const FeeRule = require("./models/feeRule");
 const StudentFee = require("./models/studentFee");
 const FeePayment = require("./models/feePayment");
 const SchoolSetting = require("./models/schoolSetting");
+const Notice = require("./models/notice");
 
 const TEACHER_NAMES = [
     "Aarav Patel",
@@ -458,6 +459,57 @@ async function seed() {
                     submittedAt: new Date(),
                 });
             }
+        }
+
+        // 11. Create Notices
+        console.log("Creating Notices...");
+        const classTeacher = teacherDocs[0]; // Use first teacher as class teacher
+
+        const noticeTemplates = [
+            {
+                title: "Annual Sports Day Registration",
+                content: "Registration for Annual Sports Day is now open. Please submit your forms by February 15th.",
+                postedBy: principal?._id || classTeacher._id,
+                postedByType: principal ? "Principal" : "Teacher",
+                postedByName: principal?.fullName || classTeacher.fullName,
+                priority: "high",
+                targetAudience: "all",
+            },
+            {
+                title: "Library Hours Extended",
+                content: "The school library will now be open until 6 PM on weekdays for better access to study materials.",
+                postedBy: principal?._id || classTeacher._id,
+                postedByType: principal ? "Principal" : "Teacher",
+                postedByName: principal?.fullName || classTeacher.fullName,
+                priority: "normal",
+                targetAudience: "all",
+            },
+            {
+                title: "Parent-Teacher Meeting",
+                content: "Scheduled for February 20th, 2026. Please ensure your parents attend to discuss your progress.",
+                postedBy: principal?._id || classTeacher._id,
+                postedByType: principal ? "Principal" : "Teacher",
+                postedByName: principal?.fullName || classTeacher.fullName,
+                priority: "high",
+                targetAudience: "all",
+            },
+            {
+                title: "Science Fair Project Submission",
+                content: "Science fair projects are due by March 1st. Submit your projects to your science teacher.",
+                postedBy: classTeacher._id,
+                postedByType: "Teacher",
+                postedByName: classTeacher.fullName,
+                priority: "normal",
+                targetAudience: "all",
+            },
+        ];
+
+        for (const noticeData of noticeTemplates) {
+            await Notice.create({
+                school: SCHOOL_ID,
+                ...noticeData,
+                expiryDate: new Date(Date.now() + 30 * 86400000), // 30 days from now
+            });
         }
 
         console.log("🏁 Seeding Complete!");

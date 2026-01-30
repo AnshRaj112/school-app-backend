@@ -15,6 +15,7 @@ const Teacher = require("../models/teacher");
 const StudentFee = require("../models/studentFee");
 const FeePayment = require("../models/feePayment");
 const Leave = require("../models/leave");
+const Notice = require("../models/notice");
 
 // Helper to filter by School ID (assuming it's passed in query or body for now, or auth middleware)
 // For real auth, req.user.schoolId would be used.
@@ -235,7 +236,7 @@ exports.getStudentDashboard = async (req, res) => {
     const student = ctx.student;
     const now = new Date();
 
-    const [assignments, attendanceRecent, holidaysUpcoming, timetable, fees, payments] =
+    const [assignments, attendanceRecent, holidaysUpcoming, timetable, fees, payments, notices] =
       await Promise.all([
         Assignment.find({
           section: student.section._id,
@@ -275,6 +276,31 @@ exports.getStudentDashboard = async (req, res) => {
         FeePayment.find({ student: student._id, school: student.school._id })
           .sort({ receivedAt: -1 })
           .limit(20),
+
+        (async () => {
+          const now = new Date();
+          const noticeQuery = {
+            school: student.school._id,
+            isActive: true,
+            $or: [
+              { targetAudience: "all" },
+              ...(student.section?._id ? [{ targetSection: student.section._id }] : []),
+              ...(student.section?.classId?._id
+                ? [{ targetClass: student.section.classId._id }]
+                : []),
+            ],
+            $and: [
+              {
+                $or: [
+                  { expiryDate: { $exists: false } },
+                  { expiryDate: null },
+                  { expiryDate: { $gte: now } },
+                ],
+              },
+            ],
+          };
+          return Notice.find(noticeQuery).sort({ priority: -1, createdAt: -1 }).limit(50);
+        })(),
       ]);
 
     // Attach submissions for assignments (quick lookup)
@@ -324,6 +350,7 @@ exports.getStudentDashboard = async (req, res) => {
       timetable,
       fees,
       payments,
+      notices,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

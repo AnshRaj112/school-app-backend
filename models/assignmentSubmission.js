@@ -25,7 +25,7 @@ const assignmentSubmissionSchema = new mongoose.Schema({
     {
       url: { type: String, required: true },
       name: { type: String },
-      fileType: { type: String },
+      fileType: { type: String, enum: ["file", "drive", "link"], default: "file" },
       fileSize: { type: Number },
     },
   ],
